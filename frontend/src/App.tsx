@@ -48,17 +48,33 @@ const HinglishVoiceWizard: React.FC = () => {
   const [history, setHistory] = useState<Array<{ command: string, success: boolean }>>([]);
   const [isListening, setIsListening] = useState(false);
   const [showTutorial, setShowTutorial] = useState(true);
+  const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
 
-  const { transcript, resetTranscript, browserSupportsSpeechRecognition } = useSpeechRecognition();
+  const { transcript, resetTranscript, browserSupportsSpeechRecognition, listening } = useSpeechRecognition();
 
-  // Auto-detect and execute command
+  // Check microphone permission on load
   useEffect(() => {
-    if (transcript && transcript.length > 3) {
-      executeCommand(transcript);
-    }
-  }, [transcript]);
+    const checkMicPermission = async () => {
+      try {
+        const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        setMicPermission(permissionStatus.state as any);
+        
+        permissionStatus.onchange = () => {
+          setMicPermission(permissionStatus.state as any);
+        };
+      } catch (error) {
+        console.log('Permission API not supported, will check on first use');
+      }
+    };
+    checkMicPermission();
+  }, []);
 
   const executeCommand = async (command: string) => {
+    if (!command || command.trim().length < 3) {
+      setStatus('Please say a valid command! 🎤');
+      return;
+    }
+
     setIsListening(false);
     SpeechRecognition.stopListening();
     playSound('click');
@@ -89,26 +105,48 @@ const HinglishVoiceWizard: React.FC = () => {
         playSound('error');
       }
 
-      setTimeout(() => resetTranscript(), 1000);
+      setTimeout(() => {
+        resetTranscript();
+        setStatus('🎤 Ready for next command!');
+      }, 2000);
     } catch (error) {
-      setStatus('Network error! Check if backend is running 🚀');
+      setStatus('❌ Network error! Check if backend is running on port 5000 🚀');
       playSound('error');
+      console.error('Backend connection error:', error);
     }
   };
 
-  const startListening = () => {
-    setIsListening(true);
-    playSound('click');
-    SpeechRecognition.startListening({
-      language: 'en-IN',
-      continuous: false
-    });
-    setStatus('🎤 Listening... Speak now!');
+  const startListening = async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      setIsListening(true);
+      playSound('click');
+      resetTranscript();
+      
+      SpeechRecognition.startListening({
+        language: 'en-IN',
+        continuous: true
+      });
+      
+      setStatus('🎤 Listening... Speak your command!');
+    } catch (error) {
+      console.error('Microphone access error:', error);
+      setStatus('❌ Microphone access denied! Please allow microphone permission.');
+      playSound('error');
+      setMicPermission('denied');
+    }
   };
 
   const stopListening = () => {
     setIsListening(false);
     SpeechRecognition.stopListening();
+    
+    if (transcript && transcript.trim().length > 2) {
+      executeCommand(transcript);
+    } else {
+      setStatus('No command detected. Try again! 🎤');
+    }
   };
 
   const toggleTutorial = () => {
@@ -140,11 +178,66 @@ const HinglishVoiceWizard: React.FC = () => {
           padding: '40px',
           borderRadius: '20px',
           backdropFilter: 'blur(10px)',
-          textAlign: 'center'
+          textAlign: 'center',
+          maxWidth: '600px'
         }}>
-          <h1 style={{ fontSize: '2.5rem' }}>⚠️ Browser Support Needed</h1>
-          <p>Your browser doesn't support speech recognition.</p>
-          <p>Try Chrome, Edge, or Safari latest version.</p>
+          <h1 style={{ fontSize: '2.5rem', marginBottom: '20px' }}>⚠️ Browser Support Needed</h1>
+          <p style={{ fontSize: '1.1rem', marginBottom: '15px' }}>Your browser doesn't support speech recognition.</p>
+          <p style={{ fontSize: '1.1rem', marginBottom: '15px' }}>Please use:</p>
+          <ul style={{ textAlign: 'left', fontSize: '1rem', lineHeight: '1.8' }}>
+            <li>Google Chrome (Recommended)</li>
+            <li>Microsoft Edge</li>
+            <li>Safari (MacOS/iOS)</li>
+          </ul>
+          <p style={{ fontSize: '0.9rem', marginTop: '20px', opacity: 0.8 }}>
+            Note: Make sure you're using HTTPS or localhost
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (micPermission === 'denied') {
+    return (
+      <div style={{
+        background: vibeColors[currentVibe],
+        minHeight: '100vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        color: 'white',
+        padding: '20px'
+      }}>
+        <div style={{
+          background: 'rgba(255,255,255,0.1)',
+          padding: '40px',
+          borderRadius: '20px',
+          backdropFilter: 'blur(10px)',
+          textAlign: 'center',
+          maxWidth: '600px'
+        }}>
+          <h1 style={{ fontSize: '2.5rem', marginBottom: '20px' }}>🎤 Microphone Access Required</h1>
+          <p style={{ fontSize: '1.1rem', marginBottom: '15px' }}>
+            Voice commands need microphone access to work.
+          </p>
+          <p style={{ fontSize: '1rem', marginBottom: '20px' }}>
+            Please enable microphone permission in your browser settings and reload the page.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: '15px 30px',
+              background: 'rgba(255,255,255,0.3)',
+              border: '2px solid white',
+              borderRadius: '50px',
+              color: 'white',
+              fontSize: '1.1rem',
+              cursor: 'pointer',
+              backdropFilter: 'blur(5px)'
+            }}
+          >
+            🔄 Reload Page
+          </button>
         </div>
       </div>
     );
@@ -308,9 +401,10 @@ const HinglishVoiceWizard: React.FC = () => {
             color: 'white',
             fontSize: '1.5rem',
             minHeight: '40px',
-            fontStyle: transcript ? 'normal' : 'italic'
+            fontStyle: transcript ? 'normal' : 'italic',
+            wordBreak: 'break-word'
           }}>
-            {transcript || "Waiting for your Hinglish command..."}
+            {listening && !transcript ? "🎤 Listening..." : (transcript || "Waiting for your Hinglish command...")}
           </p>
         </div>
 
